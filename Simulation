@@ -1,0 +1,197 @@
+#I don't have an NVIDIA GPU, so I wrote the code so that Google Colab could run it, you can ignore the first %%writefile part if you have an NVIDIA GPU.
+# Write the C++/CUDA code to a file, you can then run the simulation by first executing "!nvcc -o electron_simulation electron_simulation.cu", then "!./electron_simulation"
+%%writefile electron_simulation.cu
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <cmath>
+#include <string>
+#include <random>
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+using namespace std;
+
+// defining constants
+const double C = 299792458; // speed of light in m/s
+const double e0 = 8.8541878188e-12; // epsilon zero in F/m
+double BETA = 0.3941;
+double vz = C * BETA;
+const int num_electrons = 1000; // number of electrons
+const double dt = 1e-12; // time step in seconds
+const double half_dt = dt / 2; // half of the time step
+const double q = -1.60217662e-19; // electron charge in C
+const double m = 9.10938356e-31; // electron mass in kg
+const double LARGE_VALUE = 1e30; // large constant value that we need to use while finding closest data point
+
+// this is going to hold the E field data for each point
+struct E_field_values {
+    double x, y, z;
+    double Ex, Ey, Ez;
+};
+
+// this is going to hold electron positions and velocities
+struct Electron {
+    double x, y, z;
+    double vx, vy, vz;
+};
+
+// function to calculate distance
+__host__ __device__ double calculateDistance(double x1, double y1, double z1, double x2, double y2, double z2) {
+    return sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2) + pow(z2 - z1, 2));
+}
+
+// CUDA kernel to perform kick-drift-kick leapfrog method
+__global__ void leapfrogKernel(Electron* electrons, E_field_values* dataPoints, int num_electrons, int num_dataPoints, double half_dt, double dt, double q, double m) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < num_electrons) {
+        Electron& electron = electrons[i];
+
+        for (int t = 0; t < 1000; ++t) {
+            if (t%20 == 0) {
+              printf("Time step: %d\\n", t);
+            }
+            // find the closest electric field data point
+            double min_distance = LARGE_VALUE;
+            E_field_values closest_data_point;
+
+            for (int j = 0; j < num_dataPoints; ++j) {
+                double distance = calculateDistance(electron.x, electron.y, electron.z, dataPoints[j].x, dataPoints[j].y, dataPoints[j].z);
+                if (distance < min_distance) {
+                    min_distance = distance;
+                    closest_data_point = dataPoints[j];
+                }
+            }
+
+            // kick
+            electron.vx += (q / m) * closest_data_point.Ex * half_dt;
+            electron.vy += (q / m) * closest_data_point.Ey * half_dt;
+            electron.vz += (q / m) * closest_data_point.Ez * half_dt;
+
+            // drift
+            electron.x += electron.vx * dt;
+            electron.y += electron.vy * dt;
+            electron.z += electron.vz * dt;
+
+            // find the closest electric field data point again after drift
+            min_distance = LARGE_VALUE;
+
+            for (int j = 0; j < num_dataPoints; ++j) {
+                double distance = calculateDistance(electron.x, electron.y, electron.z, dataPoints[j].x, dataPoints[j].y, dataPoints[j].z);
+                if (distance < min_distance) {
+                    min_distance = distance;
+                    closest_data_point = dataPoints[j];
+                }
+            }
+
+            // kick
+            electron.vx += (q / m) * closest_data_point.Ex * half_dt;
+            electron.vy += (q / m) * closest_data_point.Ey * half_dt;
+            electron.vz += (q / m) * closest_data_point.Ez * half_dt;
+        }
+    }
+}
+
+int main() {
+    // random initial positions and velocities 
+    random_device rd;
+    mt19937 gen(rd());
+    cout << "Generating distribution" << endl;
+    normal_distribution<double> x_0(0, 0.0001); // normal distribution for x
+    normal_distribution<double> y_0(0, 0.0001); // normal distribution for y
+    normal_distribution<double> z_0(-1.5, 1); // normal distribution for z
+    normal_distribution<double> vz_0(vz, 0.000001); // normal distribution for vz
+
+    // matrix to hold initial positions and velocities 
+    vector<Electron> electrons(num_electrons);
+
+    // generate random initial positions and velocities
+    for (int i = 0; i < num_electrons; ++i) {
+        electrons[i].x = x_0(gen);
+        electrons[i].y = y_0(gen);
+        electrons[i].z = z_0(gen);
+        electrons[i].vx = 0;
+        electrons[i].vy = 0;
+        electrons[i].vz = vz_0(gen);
+    }
+
+    // reading the file
+    cout << "Reading file" << endl;
+    ifstream file("e-field_5.csv");
+    string line;
+    vector<E_field_values> dataPoints;
+
+    if (file.is_open()) {
+        // skip the first line
+        getline(file, line);
+
+        while (getline(file, line)) {
+            stringstream ss(line);
+            string item;
+            E_field_values dataPoint;
+
+            try {
+                getline(ss, item, ',');
+                dataPoint.x = stod(item);
+                getline(ss, item, ',');
+                dataPoint.y = stod(item);
+                getline(ss, item, ',');
+                dataPoint.z = stod(item);
+                getline(ss, item, ',');
+                dataPoint.Ex = stod(item);
+                getline(ss, item, ',');
+                dataPoint.Ey = stod(item);
+                dataPoint.Ez = stod(item);
+
+                dataPoints.push_back(dataPoint);
+            } catch (const invalid_argument& e) {
+                cerr << "Invalid data format in line: " << line << endl;
+                continue;
+            } catch (const out_of_range& e) {
+                cerr << "Data out of range in line: " << line << endl;
+                continue;
+            }
+        }
+        file.close();
+    } else {
+        cerr << "Unable to open file" << endl;
+        return 1;
+    }
+
+    // allocate memory on the GPU
+    Electron* d_electrons;
+    E_field_values* d_dataPoints;
+    cudaMalloc(&d_electrons, num_electrons * sizeof(Electron));
+    cudaMalloc(&d_dataPoints, dataPoints.size() * sizeof(E_field_values));
+
+    // copy data to the GPU
+    cudaMemcpy(d_electrons, electrons.data(), num_electrons * sizeof(Electron), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_dataPoints, dataPoints.data(), dataPoints.size() * sizeof(E_field_values), cudaMemcpyHostToDevice);
+
+    // launch the kernel
+    int blockSize = 256;
+    int numBlocks = (num_electrons + blockSize - 1) / blockSize;
+    leapfrogKernel<<<numBlocks, blockSize>>>(d_electrons, d_dataPoints, num_electrons, dataPoints.size(), half_dt, dt, q, m);
+
+
+    // copy results back to the CPU
+    cudaMemcpy(electrons.data(), d_electrons, num_electrons * sizeof(Electron), cudaMemcpyDeviceToHost);
+
+    // free GPU memory
+    cudaFree(d_electrons);
+    cudaFree(d_dataPoints);
+
+    // This part is for confirmation, it prints the final position and velocities of the first 10 electrons
+    for (int i = 0; i < 10; ++i) {
+        cout << "Final position and velocity of electron " << i + 1 << ": "
+             << "x = " << electrons[i].x << ", "
+             << "y = " << electrons[i].y << ", "
+             << "z = " << electrons[i].z << ", "
+             << "vx = " << electrons[i].vx << ", "
+             << "vy = " << electrons[i].vy << ", "
+             << "vz = " << electrons[i].vz << endl;
+    }
+
+    return 0;
+}
