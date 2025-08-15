@@ -1,0 +1,7 @@
+*.csv
+*.o
+simulation
+*.out
+.vscode/
+simulation_results.csv
+simulation_statistics.csv
