@@ -1,4 +1,6 @@
-#Colab'de düzgün çalışması için dosya adlarına drive konumlarını ekledim. Koddaki konum isimlerini değiştirmeden yapmak için Drive'da simulation adında bir dosya açıp kodları oraya atmak gerekiyor.
+#Colab'de düzgün çalışması için koddaki dosya adlarına drive konumlarını ekledim. Koddaki konum isimlerini değiştirmeden yapmak için Drive'da simulation adında 
+#bir dosya açıp kodları oraya atmak gerekiyor.
+
 #Sonrasında Colab ve Drive'ınızı linkleyip Colab'de sırasıyla şu komutları çalıştırmanız lazım:
 
 1)
