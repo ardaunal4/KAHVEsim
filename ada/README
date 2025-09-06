@@ -1,0 +1,10 @@
+#Colab'de düzgün çalışması için dosya adlarına drive konumlarını ekledim. Koddaki konum isimlerini değiştirmeden yapmak için Drive'da simulation adında bir dosya açıp kodları oraya atmak gerekiyor.
+#Sonrasında Colab ve Drive'ınızı linkleyip Colab'de sırasıyla şu komutları çalıştırmanız lazım:
+
+1)
+!nvcc -arch=sm_75 -o electron_simulation /content/drive/MyDrive/simulation/main.cu /content/drive/MyDrive/simulation/gpu_update.cu
+!./electron_simulation
+
+2)
+%run /content/drive/MyDrive/simulation/rhodotron_visualizer.py,
+
