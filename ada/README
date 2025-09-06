@@ -1,5 +1,5 @@
 #Colab'de düzgün çalışması için koddaki dosya adlarına drive konumlarını ekledim. Koddaki konum isimlerini değiştirmeden yapmak için Drive'da simulation adında 
-#bir dosya açıp kodları oraya atmak gerekiyor.
+#bir dosya açıp kodları oraya atmak gerekiyor. efield3.csv de dahil.
 
 #Sonrasında Colab ve Drive'ınızı linkleyip Colab'de sırasıyla şu komutları çalıştırmanız lazım:
 
